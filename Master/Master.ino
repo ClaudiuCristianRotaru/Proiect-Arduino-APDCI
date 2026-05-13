@@ -5,6 +5,8 @@ const int flamePin = 2;
 const int pirPin = 3;
 const int dhtPin = 7;     
 const int dhtType = DHT11;
+const int soilPowerPin = 5;
+const unsigned long soilReadingInterval = 5000;
 
 const int flameLedPin = 9;
 const int pirLedPin = 10;
@@ -14,8 +16,9 @@ DHT dht(dhtPin, dhtType);
 unsigned long lastMoistureTime = 0;
 unsigned long lastDhtTime = 0;
 unsigned long lastFlameTime = 0;
+
 volatile bool flameDetected = false;
-int pirState = LOW;
+byte pirState = LOW;
 bool fireAlarmActive = false;
 
 void setup()
@@ -33,6 +36,7 @@ void setup()
 
     Serial.print("PIR Sensor Warming Up for 30s...");
     delay(30000); 
+    pinMode(soilPowerPin, OUTPUT);
     pinMode(pirLedPin, OUTPUT);
     Serial.println("Ready!");
 
@@ -80,17 +84,29 @@ void loop()
         digitalWrite(flameLedPin, LOW);
     }
     //SOIL MOISTURE
-    if (millis() - lastMoistureTime >= 1000) {
-        int rawValue = analogRead(moisturePin);
-        int moisturePercentage = map(rawValue, 1023, 300, 0, 100);
-        moisturePercentage = constrain(moisturePercentage, 0, 100);
+    if (millis() - lastMoistureTime >= soilReadingInterval) {
+        digitalWrite(soilPowerPin, HIGH);
+        delay(20);
+        Serial.print("{\"soil_moisture\":{\"raw\": [");
+        int rawSamples[10];
 
-        Serial.print("Raw Soil Moisture Sensor Value: ");
-        Serial.print(rawValue);
-        Serial.print("  | Soil Moisture Level: ");
-        Serial.print(moisturePercentage);
-        Serial.println("%");
+        for(int i = 0; i < 10; i++) {
+            rawSamples[i] = analogRead(moisturePin);
+            Serial.print(rawSamples[i]);
+            if (i < 9) Serial.print(",");
+            delay(10);
+        }
 
+        Serial.print("], \"percentage\": [");
+
+        for(int i = 0; i < 10; i++) {
+            int percent = map(rawSamples[i], 1023, 300, 0, 100);
+            percent = constrain(percent, 0, 100);
+            Serial.print(percent);
+            if (i < 9) Serial.print(",");
+        }
+        Serial.println("]}}");
+        digitalWrite(soilPowerPin, LOW);
         lastMoistureTime = millis();
     }
 
