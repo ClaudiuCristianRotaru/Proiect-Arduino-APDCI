@@ -19,7 +19,7 @@ bool fireAlarmActive = false;
 
 void setup()
 {
-    Serial.begin(9600);
+    Serial.begin(115200);
     Serial.println("Initializing agricultural monitoring...");
 
     Serial.print("Soil Moisture Sensor Starting...");
