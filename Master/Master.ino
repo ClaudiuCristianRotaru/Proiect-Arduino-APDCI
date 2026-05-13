@@ -6,7 +6,8 @@ const int pirPin = 3;
 const int dhtPin = 7;     
 const int dhtType = DHT11;
 
-const int flameLedPin = 13;
+const int flameLedPin = 9;
+const int pirLedPin = 10;
 
 DHT dht(dhtPin, dhtType);
 
@@ -27,10 +28,12 @@ void setup()
 
     Serial.print("Flame Sensor Starting...");
     attachInterrupt(digitalPinToInterrupt(flamePin), fireISR, FALLING);
+    pinMode(flameLedPin, OUTPUT);
     Serial.println("Ready!");
 
     Serial.print("PIR Sensor Warming Up for 30s...");
     delay(30000); 
+    pinMode(pirLedPin, OUTPUT);
     Serial.println("Ready!");
 
     Serial.print("DHT11 Temperature Sensor Starting... ");
@@ -44,7 +47,7 @@ void loop()
     {
         int motionValue = digitalRead(pirPin);
         if (motionValue == HIGH) {
-            //digitalWrite(ledPin, HIGH);
+            digitalWrite(pirLedPin, HIGH);
     
             if (pirState == LOW) {
                 Serial.println("Motion detected!");
@@ -52,7 +55,7 @@ void loop()
             }
         } 
         else {
-            //digitalWrite(ledPin, LOW);
+            digitalWrite(pirLedPin, LOW);
 
             if (pirState == HIGH) {
                 Serial.println("Motion ended.");
