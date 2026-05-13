@@ -1,5 +1,4 @@
-// Define the pins
-const int pirPin = 3
+const int pirPin = 3;
 const int ledPin = 13;
 
 int pirState = LOW;
