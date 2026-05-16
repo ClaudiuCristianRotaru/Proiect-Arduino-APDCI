@@ -30,6 +30,9 @@ void setup()
     Serial.begin(115200);
     Serial.println("Initializing agricultural monitoring...");
 
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, LOW);
+
     Serial.print("Soil Moisture Sensor Starting...");
     Serial.println("Ready!");
 
@@ -38,14 +41,19 @@ void setup()
     pinMode(flameLedPin, OUTPUT);
     Serial.println("Ready!");
 
-    Serial.print("PIR Sensor Warming Up for 30s...");
-    delay(30000); 
+    Serial.print("Warming up PIR...");
+    while(digitalRead(pirPin) == HIGH) {
+        delay(100);
+    }
     pinMode(soilPowerPin, OUTPUT);
     pinMode(pirLedPin, OUTPUT);
     Serial.println("Ready!");
 
     Serial.print("DHT11 Temperature Sensor Starting... ");
     dht.begin();
+
+
+    digitalWrite(LED_BUILTIN, HIGH);
     Serial.println("Ready!");
 }
 
@@ -79,7 +87,7 @@ void checkPIR()
             StaticJsonDocument<200> doc;
             doc["type"] = "alert";
             doc["node"] = nodeId;
-            doc["sensor"] = "pir";
+            doc["subject"] = "pir";
             doc["status"] = "ok";
             JsonObject payload = doc.createNestedObject("payload");
             payload["active"] = true;
@@ -108,7 +116,7 @@ void checkFlame() {
         StaticJsonDocument<200> doc;
         doc["type"] = "alert";
         doc["node"] = nodeId;
-        doc["sensor"] = "flame";
+        doc["subject"] = "flame";
         doc["status"] = "ok";
         JsonObject payload = doc.createNestedObject("payload");
         payload["active"] = true;
@@ -150,7 +158,7 @@ void checkSoilMoisture() {
     StaticJsonDocument<200> doc;
     doc["type"] = "telemetry";
     doc["node"] = nodeId;
-    doc["sensor"] = "soil_moisture";
+    doc["subject"] = "soil_moisture";
 
     if(failed)
     {
@@ -180,7 +188,7 @@ void checkClimate() {
     StaticJsonDocument<200> doc;
     doc["type"] = "telemetry";
     doc["node"] = nodeId;
-    doc["sensor"] = "climate";
+    doc["subject"] = "climate";
 
     if (isnan(humidity) || isnan(tempC)) {
         doc["status"] = "error";
