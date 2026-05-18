@@ -1,5 +1,18 @@
 #include "DHT.h"
+#include <avr/wdt.h>
 #include <ArduinoJson.h>
+
+// 1. Create a global variable to "capture" the state
+volatile uint8_t mcusr_mirror __attribute__ ((section (".noinit")));
+
+// 2. This function runs BEFORE setup()
+void get_mcusr(void) __attribute__((naked)) __attribute__((section(".init0")));
+void get_mcusr(void) {
+  mcusr_mirror = MCUSR;
+  MCUSR = 0;
+  wdt_disable();
+}
+
 
 const byte moisturePin = A0; 
 const byte flamePin = 2;
@@ -51,10 +64,23 @@ void setup()
 
     Serial.print("DHT11 Temperature Sensor Starting... ");
     dht.begin();
+    Serial.println("Ready!");
 
+    StaticJsonDocument<200> doc;
+    doc["type"] = "system_log";
+    doc["node"] = nodeId;
+    doc["subject"] = "boot_up";
+    doc["status"] = "ok";
+    JsonObject payload = doc.createNestedObject("payload");
+    payload["reason"] = getResetReason();
+    payload["uptime"] = millis();
+
+    serializeJson(doc, Serial);
+    Serial.println();
+    MCUSR = 0;
 
     digitalWrite(LED_BUILTIN, HIGH);
-    Serial.println("Ready!");
+
 }
 
 void loop()
@@ -205,5 +231,16 @@ void checkClimate() {
     Serial.println();
 
     lastClimateTime = millis();
+}
+
+String getResetReason() {
+// If the mirror is 0, the bootloader already wiped the evidence
+  if (mcusr_mirror == 0) return "cleared_by_bootloader";
+
+  if (mcusr_mirror & (1 << WDRF))  return "watchdog"; //code issues
+  if (mcusr_mirror & (1 << BORF))  return "brownout"; //voltage too low
+  if (mcusr_mirror & (1 << EXTRF)) return "reset_button"; //physical reset button
+  if (mcusr_mirror & (1 << PORF))  return "power_on";
+  return "unknown";
 }
 
