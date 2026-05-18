@@ -2,10 +2,7 @@
 #include <avr/wdt.h>
 #include <ArduinoJson.h>
 
-// 1. Create a global variable to "capture" the state
 volatile uint8_t mcusr_mirror __attribute__ ((section (".noinit")));
-
-// 2. This function runs BEFORE setup()
 void get_mcusr(void) __attribute__((naked)) __attribute__((section(".init0")));
 void get_mcusr(void) {
   mcusr_mirror = MCUSR;
@@ -27,9 +24,11 @@ const char* nodeId = "CA_01";
 const unsigned long soilReadingInterval = 10000;
 const unsigned long fireAlarmDuration = 10000;
 const unsigned long climateReadingInterval = 10000; //keep above 2000ms
+const unsigned long heartbeatInterval = 60000;
 
 DHT dht(dhtPin, dhtType);
 
+unsigned long lastHeartbeatTime = 0;
 unsigned long lastMoistureTime = 0;
 unsigned long lastClimateTime = 0;
 unsigned long lastFlameTime = 0;
@@ -66,25 +65,22 @@ void setup()
     dht.begin();
     Serial.println("Ready!");
 
-    StaticJsonDocument<200> doc;
-    doc["type"] = "system_log";
-    doc["node"] = nodeId;
-    doc["subject"] = "boot_up";
-    doc["status"] = "ok";
-    JsonObject payload = doc.createNestedObject("payload");
-    payload["reason"] = getResetReason();
-    payload["uptime"] = millis();
+    StaticJsonDocument<128> p;
+    p["reason"] = getResetReason();
+    p["uptime"] = millis();
+    sendJson("system_log", "boot_up", "ok", p.as<JsonVariantConst>());
 
-    serializeJson(doc, Serial);
-    Serial.println();
     MCUSR = 0;
-
+    wdt_enable(WDTO_8S);
     digitalWrite(LED_BUILTIN, HIGH);
-
 }
 
 void loop()
 {
+    wdt_reset();
+    //HEARTBEAT
+    sendHeartbeat();
+
     //PIR
     checkPIR();
 
@@ -102,6 +98,19 @@ void fireISR() {
   flameDetected = true;
 }
 
+void sendHeartbeat() {
+    if (millis() - lastHeartbeatTime < heartbeatInterval)
+        return;
+
+    StaticJsonDocument<128> p;
+    p["uptime"] = millis();
+    p["free_ram"] = getFreeRam();
+
+    sendJson("system_log", "heartbeat", "ok", p.as<JsonVariantConst>());
+
+    lastHeartbeatTime = millis();
+}
+
 void checkPIR()
 {
     byte motionValue = digitalRead(pirPin);
@@ -109,17 +118,10 @@ void checkPIR()
         digitalWrite(pirLedPin, HIGH);
 
         if (pirState == LOW) {
+            StaticJsonDocument<128> p;
+            p["active"] = true;
 
-            StaticJsonDocument<200> doc;
-            doc["type"] = "alert";
-            doc["node"] = nodeId;
-            doc["subject"] = "pir";
-            doc["status"] = "ok";
-            JsonObject payload = doc.createNestedObject("payload");
-            payload["active"] = true;
-
-            serializeJson(doc, Serial);
-            Serial.println();
+            sendJson("alert", "pir", "ok", p.as<JsonVariantConst>());
 
             pirState = HIGH;
         }
@@ -139,16 +141,10 @@ void checkFlame() {
         flameDetected = false;
         digitalWrite(flameLedPin, HIGH);
 
-        StaticJsonDocument<200> doc;
-        doc["type"] = "alert";
-        doc["node"] = nodeId;
-        doc["subject"] = "flame";
-        doc["status"] = "ok";
-        JsonObject payload = doc.createNestedObject("payload");
-        payload["active"] = true;
+        StaticJsonDocument<128> p;
+        p["active"] = true;
 
-        serializeJson(doc, Serial);
-        Serial.println();
+        sendJson("alert", "flame", "ok", p.as<JsonVariantConst>());
 
         lastFlameTime = millis();
     }
@@ -181,24 +177,23 @@ void checkSoilMoisture() {
     int perAverage = map(rawAverage, 1023, 300, 0, 100);
     perAverage = constrain(perAverage, 0, 100);
 
-    StaticJsonDocument<200> doc;
-    doc["type"] = "telemetry";
-    doc["node"] = nodeId;
-    doc["subject"] = "soil_moisture";
+    StaticJsonDocument<128> p;
+    const char* status;
 
     if(failed)
     {
-        doc["status"] = "error";
+       status = "error";
+        p["raw"] = nullptr;
+        p["percentage"] = nullptr;
     }
     else 
     {
-        doc["status"] = "ok";
-        JsonObject payload = doc.createNestedObject("payload");
-        payload["raw"] = rawAverage;
-        payload["percentage"] = perAverage;
+        status = "ok";
+        p["raw"] = rawAverage;
+        p["percentage"] = perAverage;
     }
-    serializeJson(doc, Serial);
-    Serial.println();
+
+    sendJson("telemetry", "soil_moisture", status, p.as<JsonVariantConst>());
 
     digitalWrite(soilPowerPin, LOW);
     lastMoistureTime = millis();
@@ -211,32 +206,40 @@ void checkClimate() {
     float humidity = dht.readHumidity();
     float tempC = dht.readTemperature();
 
-    StaticJsonDocument<200> doc;
-    doc["type"] = "telemetry";
-    doc["node"] = nodeId;
-    doc["subject"] = "climate";
+    StaticJsonDocument<128> p;
+    const char* status;
 
     if (isnan(humidity) || isnan(tempC)) {
-        doc["status"] = "error";
+        status = "error";
+        p["temperatureC"] = nullptr;
+        p["humidity"] = nullptr;
     }
     else 
     {
-        doc["status"] = "ok";
-        JsonObject payload = doc.createNestedObject("payload");
-        payload["temperatureC"] = tempC;
-        payload["humidity"] = humidity;
+        status = "ok";
+        p["temperatureC"] = tempC;
+        p["humidity"] = humidity;
     }
 
-    serializeJson(doc, Serial);
-    Serial.println();
+    sendJson("telemetry", "climate", status, p.as<JsonVariantConst>());
 
     lastClimateTime = millis();
 }
 
-String getResetReason() {
-// If the mirror is 0, the bootloader already wiped the evidence
-  if (mcusr_mirror == 0) return "cleared_by_bootloader";
+void sendJson(const char* type, const char* subject, const char* status, JsonVariantConst payload) {
+    StaticJsonDocument<256> doc;
+    doc["type"] = type;
+    doc["node"] = nodeId;
+    doc["subject"] = subject;
+    doc["status"] = status;
+    doc["payload"] = payload;
 
+    serializeJson(doc, Serial);
+    Serial.println();
+}
+
+String getResetReason() {
+  if (mcusr_mirror == 0) return "cleared_by_bootloader";
   if (mcusr_mirror & (1 << WDRF))  return "watchdog"; //code issues
   if (mcusr_mirror & (1 << BORF))  return "brownout"; //voltage too low
   if (mcusr_mirror & (1 << EXTRF)) return "reset_button"; //physical reset button
@@ -244,3 +247,8 @@ String getResetReason() {
   return "unknown";
 }
 
+int getFreeRam() {
+  extern int __heap_start, *__brkval;
+  int v;
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+}
