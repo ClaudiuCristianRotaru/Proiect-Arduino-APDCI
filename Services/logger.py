@@ -37,16 +37,17 @@ def update_node_status(node_name, data):
         "last_seen": data.get("timestamp"),
         "status": data.get("status")
     }
-    if payload.get("online"):
+    if "online" in payload:
         node_status["online"] = payload.get("online")
 
-    if payload.get("uptime"):
+    if "uptime" in payload:
         node_status["uptime"] = payload.get("uptime")
 
-    if payload.get("free_ram"):
+    if "free_ram" in payload:
         node_status["free_ram"] = payload.get("free_ram")
 
     doc_ref.set(node_status, merge= True)
+    print("Updating node state in cloud")
 
 
 def on_message(client, userdata, message):
@@ -78,7 +79,7 @@ def on_message(client, userdata, message):
         update_node_status(node, data)
         return
     
-    if payload.get("online"):
+    if "online" in payload:
         update_node_status(node, data)
         
     save_to_firestore(collection_name, document_name, data)
