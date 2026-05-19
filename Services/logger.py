@@ -41,10 +41,12 @@ def update_node_status(node_name, data):
 
 
 def on_message(client, userdata, message):
+    data = {}
     try:
         data = json.loads(message.payload.decode("utf-8"))
     except json.JSONDecodeError:
         print(f"Error: Could not parse line: {message.payload}")
+        return
 
     if "timestamp" in data:
         data["timestamp"] = datetime.fromisoformat(data["timestamp"])
@@ -73,15 +75,22 @@ def on_message(client, userdata, message):
         return
     
     if "online" in payload:
-        update_node_status(node, data)
+        if "affected_nodes" in payload:
+            nodes = payload.get("affected_nodes")
+            for n in nodes:
+                update_node_status(n, data)
+            print("closing all nodes:", nodes)
+        else:
+            update_node_status(node, data)
+            
         
     save_to_firestore(collection_name, document_name, data)
-    print("saving to", collection_name, "document", document_name, "data", payload)
+    print("saving to", collection_name, "document", document_name, "data", data)
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
         print("--- Connected to Broker ---")
-        client.subscribe("nodes/+/+/#", qos=1)
+        client.subscribe(topic, qos=1)
         
         if flags.session_present:
             print("Persistent session restored! Processing queued messages...")

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 SERIAL_PORT = "COM6"
 BAUD_RATE = 115200
-node_registry = {"COM6": "CA_01"}
+node_registry = {"CA_01": "COM6"}
 
 heartbeat_deadline = 90  # seconds
 last_heard = {}
@@ -66,23 +66,25 @@ def start_gateway():
                 print(f"Error: Could not parse line: {raw_line}")
 
     except serial.SerialException as e:
+        affected_nodes = [node for node, port in node_registry.items() if port == SERIAL_PORT]
         error_message = build_message(
             type="system_log",
             node="gateway_script",
             subject="serial_exception",
             status="error",
-            payload={"port": SERIAL_PORT, "message": str(e), "online": False},
+            payload={"affected_nodes": affected_nodes, "message": str(e), "online": False},
         )
         send_message(error_message)
         print(f"Alert: Connection on {SERIAL_PORT} was lost!", e)
 
     except KeyboardInterrupt as e:
+        affected_nodes = [node for node, port in node_registry.items() if port == SERIAL_PORT]
         error_message = build_message(
             type="system_log",
             node="gateway_script",
             subject="keyboard_interrupt",
             status="error",
-            payload={"message": str(e), "online": False},
+            payload={"affected_nodes": affected_nodes, "message": str(e), "online": False},
         )
         send_message(error_message)
         print("\n--- Gateway Shutting Down ---")
@@ -115,6 +117,10 @@ def check_dead_nodes():
 
 
 def send_message(data):
+    if not all(k in data for k in ("node", "type", "subject")):
+        print(f"Dropped bad message: {data}")
+        return
+
     qos = 0
     if data.get("type") in ["alert", "system_log"] or data.get("status") != "ok":
         qos = 1
@@ -128,12 +134,14 @@ def send_message(data):
 if __name__ == "__main__":
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="gateway_bridge")
 
+    affected_nodes = [node for node, port in node_registry.items() if port == SERIAL_PORT]
     last_will_message = build_message(
         type="system_log",
         node="gateway_script",
         subject="last_will",
         status="error",
         payload={
+            "affected_nodes": affected_nodes,
             "message": "The gateway host computer lost power or crashed.",
             "online": False,
         },
@@ -147,15 +155,6 @@ if __name__ == "__main__":
         client.loop_start()
         print("--- Connected to Mosquitto MQTT Broker ---")
         client.publish(will_topic, payload="", qos=1, retain=True)
-        message = build_message(
-            type="system_log",
-            node="gateway_script",
-            subject="boot_up",
-            status="ok",
-            payload={"online": True, "message": "Gateway host computer is online"},
-        )
-        path = f"nodes/{message['node']}/{message['type']}/{message['subject']}"
-        client.publish(path, json.dumps(message), qos=1, retain=True)
 
     except Exception as e:
         print(f"Failed to connect to MQTT: {e}")
