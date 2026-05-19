@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 
 SERIAL_PORT = 'COM6'
 BAUD_RATE = 115200
+node_registry = {
+    "COM6":"CA_01"
+}
 
 def start_gateway():
     try:
@@ -30,39 +33,59 @@ def start_gateway():
                     node = data.get("node")
                     subject = data.get("subject")
                     status = data.get("status")
-                    payload = data.get("payload", {})
 
-                    if (status == 'error'):
-                        print(f"Sending the message to topic: nodes/{node}/system/error" )
-                        continue
-
-                    if (msg_type == "telemetry"):
-                        handle_telemetry(data)
-
-                    print(f"Sending the message to topic: nodes/{node}/{msg_type}/{subject}" )
-
+                    path = f"nodes/{node}/{msg_type}/{subject}"
+                    print(f"Sending the message to topic: {path}" )
+                    send_message(data, path)
 
                 except json.JSONDecodeError:
                     print(f"Error: Could not parse line: {raw_line}")
 
     except serial.SerialException as e:
-        print(f"Connection Error: {e}")
+        node_name = node_registry.get(SERIAL_PORT, "unknown_node")
+        error_message = {
+        "type": "system_log", 
+        "id": str(uuid.uuid4()), 
+        "timestamp": datetime.now(timezone.utc).isoformat(), 
+        "node": node_name, 
+        "subject": SERIAL_PORT, 
+        "status": "error",
+        "payload": {
+            "message": "serial_interrupt",
+            "online": False
+        }}
+        path = f"nodes/{node_name}/{error_message['type']}/{error_message['subject']}"
+    
+        send_message(error_message, path)
+        print(f"Alert: Connection to {node_name} on {SERIAL_PORT} was lost!", e)
+
     except KeyboardInterrupt:
+        node_name = node_registry.get(SERIAL_PORT, "unknown_node")
+        error_message = {
+        "type": "system_log", 
+        "id": str(uuid.uuid4()), 
+        "timestamp": datetime.now(timezone.utc).isoformat(), 
+        "node": node_name, 
+        "subject": "gateway_script", 
+        "status": "error",
+        "payload": {
+            "message": "keyboard_interrupt",
+            "online": False
+        }}
+        path = f"nodes/{node_name}/{error_message['type']}/{error_message['subject']}"
+    
+        send_message(error_message, path)
         print("\n--- Gateway Shutting Down ---")
 
-def handle_alert(sensor, payload):
-    state = "ACTIVE" if payload.get("active") else "CLEARED"
-    print(f"ALERT [{sensor.upper()}]: System is {state}!")
-
-def handle_telemetry(data):
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="Test_Publisher")
+def send_message(data, path):
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="gateway_bridge")
 
     client.connect("localhost", 1883)
 
     data_string = json.dumps(data);
 
     print("Sending test data...")
-    client.publish(f"nodes/{data.get("node")}/{data.get("type")}/{data.get("subject")}", data_string)
+    client.publish(path, data_string)
 
     client.disconnect()
     print("Done.")
