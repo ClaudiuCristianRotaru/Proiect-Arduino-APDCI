@@ -11,16 +11,25 @@ node_registry = {
 }
 
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="gateway_bridge")
-
-client.connect("localhost", 1883)
+try:
+    client.connect("localhost", 1883)
+    client.loop_start()
+    print("--- Connected to Mosquitto MQTT Broker ---")
+except Exception as e:
+    print(f"Failed to connect to MQTT: {e}")
+    exit(1)
 
 def start_gateway():
+    ser = None
     try:
         ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
         print(f"--- Gateway Started on {SERIAL_PORT} ---")
         
         while True:
-            raw_line = ser.readline().decode('utf-8').strip()
+            raw_line = ser.readline().decode('utf-8', errors='ignore').strip()
+
+            if not raw_line:
+                continue
             
             if not raw_line.startswith('{'):
                 print(f"System Message: {raw_line}")
@@ -28,7 +37,7 @@ def start_gateway():
 
             try:
                 data = json.loads(raw_line)
-                data["timestamp"] = datetime.now(timezone.utc).isoformat();
+                data["timestamp"] = datetime.now(timezone.utc).isoformat()
                 data["id"] = str(uuid.uuid4())
                 print(json.dumps(data, default=str))
 
@@ -38,7 +47,7 @@ def start_gateway():
                 status = data.get("status")
 
                 path = f"nodes/{node}/{msg_type}/{subject}"
-                print(f"Sending the message to topic: {path}" )
+
                 send_message(data, path)
 
             except json.JSONDecodeError:
@@ -54,7 +63,7 @@ def start_gateway():
         "subject": SERIAL_PORT, 
         "status": "error",
         "payload": {
-            "message": "serial_interrupt",
+            "message": str(e),
             "online": False
         }}
         path = f"nodes/{node_name}/{error_message['type']}/{error_message['subject']}"
@@ -90,13 +99,9 @@ def start_gateway():
         print("Disconnected from MQTT Broker")
 
 def send_message(data, path):
-
-    data_string = json.dumps(data);
-
-    print("Sending test data...")
+    data_string = json.dumps(data)
+    print("Sending data...")
     client.publish(path, data_string)
-
-    print("Done.")
 
 if __name__ == "__main__":
     start_gateway()
