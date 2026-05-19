@@ -10,36 +10,39 @@ node_registry = {
     "COM6":"CA_01"
 }
 
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="gateway_bridge")
+
+client.connect("localhost", 1883)
+
 def start_gateway():
     try:
         ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
         print(f"--- Gateway Started on {SERIAL_PORT} ---")
         
         while True:
-            if ser.in_waiting > 0:
-                raw_line = ser.readline().decode('utf-8').strip()
-                
-                if not raw_line.startswith('{'):
-                    print(f"System Message: {raw_line}")
-                    continue
+            raw_line = ser.readline().decode('utf-8').strip()
+            
+            if not raw_line.startswith('{'):
+                print(f"System Message: {raw_line}")
+                continue
 
-                try:
-                    data = json.loads(raw_line)
-                    data["timestamp"] = datetime.now(timezone.utc).isoformat();
-                    data["id"] = str(uuid.uuid4())
-                    print(json.dumps(data, default=str))
+            try:
+                data = json.loads(raw_line)
+                data["timestamp"] = datetime.now(timezone.utc).isoformat();
+                data["id"] = str(uuid.uuid4())
+                print(json.dumps(data, default=str))
 
-                    msg_type = data.get("type")
-                    node = data.get("node")
-                    subject = data.get("subject")
-                    status = data.get("status")
+                msg_type = data.get("type")
+                node = data.get("node")
+                subject = data.get("subject")
+                status = data.get("status")
 
-                    path = f"nodes/{node}/{msg_type}/{subject}"
-                    print(f"Sending the message to topic: {path}" )
-                    send_message(data, path)
+                path = f"nodes/{node}/{msg_type}/{subject}"
+                print(f"Sending the message to topic: {path}" )
+                send_message(data, path)
 
-                except json.JSONDecodeError:
-                    print(f"Error: Could not parse line: {raw_line}")
+            except json.JSONDecodeError:
+                print(f"Error: Could not parse line: {raw_line}")
 
     except serial.SerialException as e:
         node_name = node_registry.get(SERIAL_PORT, "unknown_node")
@@ -76,18 +79,23 @@ def start_gateway():
     
         send_message(error_message, path)
         print("\n--- Gateway Shutting Down ---")
+    
+    finally:
+        if ser is not None and ser.is_open:
+            ser.close()
+            print(f"Released COM Port: {SERIAL_PORT}")
+        
+        client.loop_stop()
+        client.disconnect()
+        print("Disconnected from MQTT Broker")
 
 def send_message(data, path):
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="gateway_bridge")
-
-    client.connect("localhost", 1883)
 
     data_string = json.dumps(data);
 
     print("Sending test data...")
     client.publish(path, data_string)
 
-    client.disconnect()
     print("Done.")
 
 if __name__ == "__main__":
