@@ -60,9 +60,7 @@ def start_gateway():
                 if node:
                     last_heard[node] = time.time()
 
-                path = f"nodes/{node}/{msg_type}/{subject}"
-
-                send_message(data, path)
+                send_message(data)
 
             except json.JSONDecodeError:
                 print(f"Error: Could not parse line: {raw_line}")
@@ -75,9 +73,7 @@ def start_gateway():
             status="error",
             payload={"port": SERIAL_PORT, "message": str(e), "online": False},
         )
-        path = f"nodes/{error_message['node']}/{error_message['type']}/{error_message['subject']}"
-
-        send_message(error_message, path)
+        send_message(error_message)
         print(f"Alert: Connection on {SERIAL_PORT} was lost!", e)
 
     except KeyboardInterrupt as e:
@@ -88,9 +84,7 @@ def start_gateway():
             status="error",
             payload={"message": str(e), "online": False},
         )
-        path = f"nodes/{error_message['node']}/{error_message['type']}/{error_message['subject']}"
-
-        send_message(error_message, path)
+        send_message(error_message)
         print("\n--- Gateway Shutting Down ---")
 
     finally:
@@ -113,18 +107,19 @@ def check_dead_nodes():
                 node=node,
                 subject="heartbeat",
                 status="error",
-                payload={"online": False, "message": "No heartbeat for 90 seconds"},
+                payload={"online": False, "message": "No heartbeat for 90 seconds"}
             )
-            path = f"nodes/{error_message['node']}/{error_message['type']}/{error_message['subject']}"
-            send_message(error_message, path)
+            send_message(error_message)
 
             del last_heard[node]
 
 
-def send_message(data, path):
+def send_message(data):
     qos = 0
     if data.get("type") in ["alert", "system_log"] or data.get("status") != "ok":
         qos = 1
+
+    path = f"nodes/{data.get('node')}/{data.get('type')}/{data.get('subject')}"
     data_string = json.dumps(data)
     print("Sending data...")
     client.publish(path, data_string, qos=qos)
@@ -151,6 +146,17 @@ if __name__ == "__main__":
         client.connect("localhost", 1883)
         client.loop_start()
         print("--- Connected to Mosquitto MQTT Broker ---")
+        client.publish(will_topic, payload="", qos=1, retain=True)
+        message = build_message(
+            type="system_log",
+            node="gateway_script",
+            subject="boot_up",
+            status="ok",
+            payload={"online": True, "message": "Gateway host computer is online"},
+        )
+        path = f"nodes/{message['node']}/{message['type']}/{message['subject']}"
+        client.publish(path, json.dumps(message), qos=1, retain=True)
+
     except Exception as e:
         print(f"Failed to connect to MQTT: {e}")
         exit(1)
