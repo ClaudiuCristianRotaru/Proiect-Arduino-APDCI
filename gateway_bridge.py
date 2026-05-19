@@ -9,6 +9,9 @@ SERIAL_PORT = "COM6"
 BAUD_RATE = 115200
 node_registry = {"COM6": "CA_01"}
 
+heartbeat_deadline = 90  # seconds
+last_heard = {}
+
 
 def build_message(type, node, subject, status, payload):
     return {
@@ -20,34 +23,6 @@ def build_message(type, node, subject, status, payload):
         "status": status,
         "payload": payload,
     }
-
-
-last_will_message = build_message(
-    type="system_log",
-    node="gateway_script",
-    subject="last_will",
-    status="error",
-    payload={
-        "message": "The gateway host computer lost power or crashed.",
-        "online": False,
-    },
-)
-
-heartbeat_deadline = 90  # seconds
-last_heard = {}
-
-will_payload = json.dumps(last_will_message)
-will_topic = "nodes/gateway_script/system_log/last_will"
-
-client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="gateway_bridge")
-client.will_set(will_topic, payload=will_payload, qos=1, retain=True)
-try:
-    client.connect("localhost", 1883)
-    client.loop_start()
-    print("--- Connected to Mosquitto MQTT Broker ---")
-except Exception as e:
-    print(f"Failed to connect to MQTT: {e}")
-    exit(1)
 
 
 def start_gateway():
@@ -156,4 +131,27 @@ def send_message(data, path):
 
 
 if __name__ == "__main__":
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="gateway_bridge")
+
+    last_will_message = build_message(
+        type="system_log",
+        node="gateway_script",
+        subject="last_will",
+        status="error",
+        payload={
+            "message": "The gateway host computer lost power or crashed.",
+            "online": False,
+        },
+    )
+    will_payload = json.dumps(last_will_message)
+    will_topic = "nodes/gateway_script/system_log/last_will"
+
+    client.will_set(will_topic, payload=will_payload, qos=1, retain=True)
+    try:
+        client.connect("localhost", 1883)
+        client.loop_start()
+        print("--- Connected to Mosquitto MQTT Broker ---")
+    except Exception as e:
+        print(f"Failed to connect to MQTT: {e}")
+        exit(1)
     start_gateway()
