@@ -10,7 +10,6 @@ void get_mcusr(void) {
   wdt_disable();
 }
 
-
 const byte moisturePin = A0; 
 const byte flamePin = 2;
 const byte pirPin = 3;
@@ -25,6 +24,7 @@ const unsigned long soilReadingInterval = 10000;
 const unsigned long fireAlarmDuration = 10000;
 const unsigned long climateReadingInterval = 10000; //keep above 2000ms
 const unsigned long heartbeatInterval = 60000;
+const unsigned long pirWarmupTimeout = 60000;
 
 DHT dht(dhtPin, dhtType);
 
@@ -39,6 +39,7 @@ bool fireAlarmActive = false;
 
 void setup()
 {
+    unsigned long setupStartTime = millis();
     Serial.begin(115200);
     Serial.println("Initializing agricultural monitoring...");
 
@@ -54,20 +55,30 @@ void setup()
     Serial.println("Ready!");
 
     Serial.print("Warming up PIR...");
-    while(digitalRead(pirPin) == HIGH) {
+    while(digitalRead(pirPin) == HIGH && (millis()-setupStartTime < pirWarmupTimeout)) {
         delay(100);
     }
+
+    if (digitalRead(pirPin) == HIGH) {
+        StaticJsonDocument<128> p;
+        p["warmup_timeout"] = true;
+        sendJson("alert", "pir", "error", p.as<JsonVariantConst>());
+    }
+
     pinMode(soilPowerPin, OUTPUT);
     pinMode(pirLedPin, OUTPUT);
     Serial.println("Ready!");
 
     Serial.print("DHT11 Temperature Sensor Starting... ");
     dht.begin();
+    lastClimateTime = millis();
     Serial.println("Ready!");
 
     StaticJsonDocument<128> p;
     p["reason"] = getResetReason();
     p["uptime"] = millis();
+    p["online"] = true;
+    p["free_ram"] = getFreeRam();
     sendJson("system_log", "boot_up", "ok", p.as<JsonVariantConst>());
 
     MCUSR = 0;
@@ -150,9 +161,14 @@ void checkFlame() {
     }
 
     if (fireAlarmActive && (millis() - lastFlameTime >= fireAlarmDuration)) {
-        fireAlarmActive = false;
-        flameDetected = false;
-        digitalWrite(flameLedPin, LOW);
+        if (digitalRead(flamePin) == LOW) {
+            lastFlameTime = millis();
+        }
+        else {
+            fireAlarmActive = false;
+            flameDetected = false;
+            digitalWrite(flameLedPin, LOW);
+        }
     }
 }
 
@@ -238,7 +254,7 @@ void sendJson(const char* type, const char* subject, const char* status, JsonVar
     Serial.println();
 }
 
-String getResetReason() {
+const char* getResetReason() {
   if (mcusr_mirror == 0) return "cleared_by_bootloader";
   if (mcusr_mirror & (1 << WDRF))  return "watchdog"; //code issues
   if (mcusr_mirror & (1 << BORF))  return "brownout"; //voltage too low
