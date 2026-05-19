@@ -14,16 +14,6 @@ firebase_admin.initialize_app(cred)
 db = firestore.client()
 topic = "nodes/+/+/#"
 
-def print_message(data):
-    print(f"node: {data.get('node')}")
-    print(f"type: {data.get('type')}")
-    print(f"status: { "✅" if data.get('status') == "ok" else "❌"}")
-    print(f"subject: {data.get('subject')}")
-    print(f"timestamp: {data.get('timestamp').strftime('%H:%M:%S')}")
-    print(f"payload: {data.get('payload')}")
-    print("\n")
-
-
 def save_to_firestore(collection_name, document_name, data):
     doc_ref = db.collection(collection_name).document(document_name)
     
