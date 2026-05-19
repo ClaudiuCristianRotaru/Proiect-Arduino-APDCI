@@ -15,12 +15,12 @@ db = firestore.client()
 topic = "nodes/+/+/#"
 
 def print_message(data):
-    print(f"node: {data.get("node")}")
-    print(f"type: {data.get("type")}")
-    print(f"status: { "✅" if data.get("status") == "ok" else "❌"}")
-    print(f"subject: {data.get("subject")}")
-    print(f"timestamp: {data.get("timestamp").strftime("%H:%M:%S")}")
-    print(f"payload: {data.get("payload")}")
+    print(f"node: {data.get('node')}")
+    print(f"type: {data.get('type')}")
+    print(f"status: { "✅" if data.get('status') == "ok" else "❌"}")
+    print(f"subject: {data.get('subject')}")
+    print(f"timestamp: {data.get('timestamp').strftime('%H:%M:%S')}")
+    print(f"payload: {data.get('payload')}")
     print("\n")
 
 
@@ -51,7 +51,11 @@ def update_node_status(node_name, data):
 
 
 def on_message(client, userdata, message):
-    data = json.loads(message.payload.decode("utf-8"))
+    try:
+        data = json.loads(message.payload.decode("utf-8"))
+    except json.JSONDecodeError:
+        print(f"Error: Could not parse line: {message.payload}")
+
     if "timestamp" in data:
         data["timestamp"] = datetime.fromisoformat(data["timestamp"])
 
@@ -61,7 +65,6 @@ def on_message(client, userdata, message):
     subject = data.get("subject")
     status = data.get("status")
     payload = data.get("payload", {})
-    timestamp = data.get("timestamp")
 
     type_to_collection = {
         "telemetry": "telemetry",
@@ -85,8 +88,21 @@ def on_message(client, userdata, message):
     save_to_firestore(collection_name, document_name, data)
     print("saving to", collection_name, "document", document_name, "data", payload)
 
-client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="logger_service")
+def on_connect(client, userdata, flags, rc, properties=None):
+    if rc == 0:
+        print("--- Connected to Broker ---")
+        client.subscribe("nodes/+/+/#", qos=1)
+        
+        if flags.session_present:
+            print("Persistent session restored! Processing queued messages...")
+        else:
+            print("New session started.")
+    else:
+        print(f"Connection failed with code {rc}")
+
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="logger_service", clean_session=False)
 client.on_message = on_message
+client.on_connect = on_connect
 client.connect("localhost", 1883)
 client.subscribe(topic)
 
